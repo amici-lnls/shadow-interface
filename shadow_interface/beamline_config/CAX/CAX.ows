@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<scheme version="2.0" title="CAX" description="" working_directory="/home/amici/repos/shadowpy/shadowpy/beamline_config/CAX" workspace_units="2">
+<scheme version="2.0" title="CAX" description="" working_directory="/home/amici/repos/shadow_interface/shadow_interface/beamline_config/CAX" workspace_units="2">
 	<nodes>
 		<node id="0" name="Bending Magnet" qualified_name="orangecontrib.shadow.widgets.sources.ow_bending_magnet.BendingMagnet" project_name="OASYS1-ShadowOui" version="" title="Bending Magnet" position="(9.0, 413.0)" />
 		<node id="1" name="Toroidal Mirror" qualified_name="orangecontrib.shadow.widgets.optical_elements.ow_toroidal_mirror.ToroidalMirror" project_name="OASYS1-ShadowOui" version="" title="Toroidal Mirror" position="(366.0, 415.0)" />

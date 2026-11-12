@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shadowpy"
-version = "0.2.0"
+name = "shadow-interface"
+version = "0.3.0"
 description = "A cleaner Shadow interface in Python"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,10 +20,10 @@ dev = ["build", "pytest"]
 
 [tool.setuptools]
 packages = [
-    "shadowpy",
-    "shadowpy.beamline_config",
-    "shadowpy.beamline_config.CAX",
+    "shadow_interface",
+    "shadow_interface.beamline_config",
+    "shadow_interface.beamline_config.CAX",
 ]
 
 [tool.setuptools.package-data]
-shadowpy = ["beamline_config/CAX/*.txt"]
+shadow_interface = ["beamline_config/CAX/*.txt"]

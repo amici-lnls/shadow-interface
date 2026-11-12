@@ -1,5 +1,5 @@
 """
-Module containing utility functions for the ShadowPy package.
+Module containing utility functions for the shadow-interface package.
 """
 
 import numpy as np

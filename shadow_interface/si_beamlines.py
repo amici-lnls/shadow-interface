@@ -2,15 +2,15 @@ from importlib.resources import files
 
 import Shadow
 
-from shadowpy.beamline import BeamLine
-from shadowpy.optical_elements import Screen, Slits, ToroidalMirror
-from shadowpy.sources import BendingMagnet
-from shadowpy.utils import ReferenceFrame, rotation_matrix
+from shadow_interface.beamline import BeamLine
+from shadow_interface.optical_elements import Screen, Slits, ToroidalMirror
+from shadow_interface.sources import BendingMagnet
+from shadow_interface.utils import ReferenceFrame, rotation_matrix
 
 # Beamline specification files ship as package data, so they are resolved
-# relative to this package regardless of whether shadowpy is installed
+# relative to this package regardless of whether shadow_interface is installed
 # (site-packages) or run from a source checkout (editable install).
-SPECS_DIR = str(files("shadowpy.beamline_config"))
+SPECS_DIR = str(files("shadow_interface.beamline_config"))
 
 
 # Utilize the cax-scripts repository for additional functionality
@@ -19,7 +19,7 @@ SPECS_DIR = str(files("shadowpy.beamline_config"))
 
 class CAXSim(BeamLine):
     """
-    Class to simulate the CARCARÁ-X (CAX) beamline using ShadowPy. 
+    Class to simulate the CARCARÁ-X (CAX) beamline using shadow_interface. 
     
     This class inherits from the Beamline class and provides methods to set 
     up and run simulations for the CAX beamline, perform scans and save 

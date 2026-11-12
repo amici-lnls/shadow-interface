@@ -1,8 +1,8 @@
-# shadowpy
+# shadow-interface
 
 A cleaner Shadow interface in Python.
 
-`shadowpy` wraps [Shadow3](https://github.com/oasys-kit/shadow3)'s Python API with
+`shadow-interface` wraps [Shadow3](https://github.com/oasys-kit/shadow3)'s Python API with
 small, user-friendly classes for building and tracing synchrotron beamlines.
 
 ## Features
@@ -22,7 +22,7 @@ small, user-friendly classes for building and tracing synchrotron beamlines.
 ## Installation
 
 ```bash
-pip install shadowpy
+pip install shadow-interface
 ```
 
 Installing from a checkout:
@@ -42,7 +42,7 @@ Requires Python 3.9+.
 ## Quick start
 
 ```python
-from shadowpy.si_beamlines import CAXSim
+from shadow_interface.si_beamlines import CAXSim
 
 beamline = CAXSim(total_rays=100_000)
 
@@ -56,10 +56,10 @@ Build a custom beamline:
 
 ```python
 import Shadow
-from shadowpy.beamline import BeamLine
-from shadowpy.sources import BendingMagnet
-from shadowpy.optical_elements import ToroidalMirror, Slits
-from shadowpy.utils import ReferenceFrame, rotation_matrix
+from shadow_interface.beamline import BeamLine
+from shadow_interface.sources import BendingMagnet
+from shadow_interface.optical_elements import ToroidalMirror, Slits
+from shadow_interface.utils import ReferenceFrame, rotation_matrix
 
 beam = Shadow.Beam()
 mirror = ToroidalMirror("M1", "path/to/mirror.txt")
@@ -75,8 +75,8 @@ beamline = BeamLine(
 
 ## Layout
 
-- `shadowpy/` – package source
-- `shadowpy/beamline_config/` – beamline specification files (shipped as
+- `shadow_interface/` – package source
+- `shadow_interface/beamline_config/` – beamline specification files (shipped as
   package data and resolved with `importlib.resources`)
 
 ## Notes

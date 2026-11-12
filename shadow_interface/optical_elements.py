@@ -1,5 +1,5 @@
 """
-Module containing the optical elements that can be used in ShadowPy. 
+Module containing the optical elements that can be used in shadow_interface. 
 
 Each optical element is represented as a class that inherits from the base 
 class `OpticalElement`. Each class has its own specific parameters and 
