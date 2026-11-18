@@ -36,10 +36,17 @@ class OpticalElement:
     providing methods to load specifications and interact with the element.
     """
 
+    # Shadow OE field groups corresponding to the cached state below.
     OFFSET_ATTRIBUTES = ['OFFX', 'OFFY', 'OFFZ']
     TILT_ATTRIBUTES   = ['X_ROT', 'Y_ROT', 'Z_ROT']
 
-    PERSISTENT_ATTRIBUTES = OFFSET_ATTRIBUTES + TILT_ATTRIBUTES
+    # X_ROT/Y_ROT/Z_ROT are deliberately NOT persistent raw Shadow fields.
+    # Shadow.traceOE() overwrites them in place with radians (they are supplied
+    # in degrees). "Preserving" those values across traces feeds radians back
+    # to Shadow as degrees, shrinking every tilt by pi/180 on each trace.
+    # The user-facing state is instead cached on the wrapper (_offset_lab /
+    # _tilt_mrad) and re-applied in degrees by reset() before every trace.
+    PERSISTENT_ATTRIBUTES = []
 
     def __init__(self, name: str, specification_file: str):
         self.name = name
@@ -54,12 +61,102 @@ class OpticalElement:
         # Image
         self.img = None
         self.pixel_size = None
-        # Persistent attributes that should not be reset after simulation
+        # Attributes kept verbatim across reset(). Offsets/tilts are excluded:
+        # they are re-derived from the cached user state (see reset()).
         self.persistent_attributes = self.PERSISTENT_ATTRIBUTES
         self.up_to_date = False
-        
-    # General attributes    
-    
+
+        # Canonical user-facing offset and tilt, stored in the LAB frame.
+        # shadow_oe cannot be the source of truth for tilts because Shadow
+        # mutates X_ROT/Y_ROT/Z_ROT (deg -> rad) inside every traceOE() call,
+        # so reading them back would also depend on whether a trace happened.
+        # Initialised from the specification once the frame is known; see
+        # cache_state_from_spec(), called by BeamLine.initialize_elements().
+        self._offset_lab = None  # np.ndarray(3), user units
+        self._tilt_mrad = None   # np.ndarray(3), milliradians
+
+    # ------------------------------------------------------------------
+    # State caching / synchronisation with Shadow
+    # ------------------------------------------------------------------
+
+    def _require_frame(self):
+        """Raise a helpful error if the element is not attached to a beamline."""
+        if self.frame is None:
+            raise ValueError(f"{self.name} frame is not defined. "
+                             f"Please add the element to a beamline first.")
+
+    def cache_state_from_spec(self):
+        """Snapshot the specification's offset/tilt into the cached lab state.
+
+        Must be called after ``self.frame`` has been assigned while ``shadow_oe``
+        still holds the pristine specification values: OFFX/Y/Z in the local
+        frame and X/Y/Z_ROT in DEGREES. BeamLine.initialize_elements()
+        calls it at that point, before any trace can replace the rotations with
+        radians.
+        """
+        self._require_frame()
+
+        offset_local = np.array([
+            self.shadow_oe.OFFX,
+            self.shadow_oe.OFFY,
+            self.shadow_oe.OFFZ,
+        ], dtype=float)
+
+        # Spec rotations are Shadow input angles in degrees using Shadow's
+        # (right-hand) sign convention. The wrapper stores lab-frame mrad with
+        # the opposite sign, hence the negation (mirrors the tilt getter).
+        tilt_local_deg = np.array([
+            self.shadow_oe.X_ROT,
+            self.shadow_oe.Y_ROT,
+            self.shadow_oe.Z_ROT,
+        ], dtype=float)
+
+        self._offset_lab = self.frame.vector_to_lab(offset_local)
+        self._tilt_mrad = 1000.0 * self.frame.vector_to_lab(
+            -np.deg2rad(tilt_local_deg)
+        )
+
+    def _ensure_state_cache(self):
+        """Initialise the cache lazily if the frame was assigned manually."""
+        self._require_frame()
+        if self._offset_lab is None or self._tilt_mrad is None:
+            self.cache_state_from_spec()
+
+    def apply_state(self, shadow_oe=None):
+        """Write the cached user state into a Shadow OE in Shadow's format.
+
+        Shadow expects OFFX/Y/Z in the local frame and X/Y/Z_ROT in
+        DEGREES. This is called by reset() immediately before traceOE(),
+        so Shadow always receives freshly converted degree values rather than
+        its own post-trace radian values. That is what keeps a tilt stable over
+        any number of traces.
+        """
+        self._require_frame()
+        self._ensure_state_cache()
+        oe = self.shadow_oe if shadow_oe is None else shadow_oe
+
+        offset_local = self.frame.vector_from_lab(self._offset_lab)
+        oe.OFFX = offset_local[0]
+        oe.OFFY = offset_local[1]
+        oe.OFFZ = offset_local[2]
+
+        tilt_lab_rad = np.asarray(self._tilt_mrad, dtype=float) / 1000.0
+        tilt_local_deg = np.rad2deg(self.frame.vector_from_lab(tilt_lab_rad))
+        oe.X_ROT = -tilt_local_deg[0]
+        oe.Y_ROT = -tilt_local_deg[1]
+        oe.Z_ROT = -tilt_local_deg[2]
+
+    def _mark_modified(self):
+        """Synchronise shadow_oe for inspection and invalidate cached results."""
+        # Keep the raw OE consistent for anyone inspecting shadow_oe between
+        # traces; reset() writes the same values again before traceOE().
+        self.apply_state()
+        self.up_to_date = False
+        if self.beamline is not None:
+            self.beamline.up_to_date = False
+
+    # General attributes
+
     @property
     def image(self):
         """
@@ -111,94 +208,77 @@ class OpticalElement:
     @property
     def offset(self):
         """
-        Get the current offset of the mirror's position in the global frame.
-        
+        Get the current offset of the element's position in the lab frame.
+
         Returns:
-            np.ndarray: A 3D vector representing the offset in the global frame.
+            np.ndarray: A 3D vector representing the offset in the lab frame.
+
+        Notes:
+            Read from the cached user state, never from shadow_oe: Shadow does
+            not modify OFFX/Y/Z during tracing, but keeping one source of truth
+            for offsets and tilts avoids unit/frame mistakes.
         """
-        if self.frame is None:
-            raise ValueError("Mirror frame is not defined. Please add the mirror to a beamline first.")
-        
-        offset_local = np.array([
-            self.shadow_oe.OFFX,
-            self.shadow_oe.OFFY,
-            self.shadow_oe.OFFZ
-        ])
-        
-        return self.frame.vector_to_lab(offset_local)
-    
+        self._require_frame()
+        self._ensure_state_cache()
+        return self._offset_lab.copy()
+
     @offset.setter
     def offset(self, offset_vector: np.ndarray):
         """
-        Apply an offset to the mirror's position.
-        
-        Parameters:
-            offset_vector (np.ndarray): A 3D vector representing the offset in the mirror's local frame.
-        """
+        Apply an offset to the element's position.
 
-        if self.frame is None:
-            raise ValueError("Mirror frame is not defined. Please add the mirror to a beamline first.")
+        Parameters:
+            offset_vector (np.ndarray): A 3D vector in the LAB frame.
+        """
+        self._require_frame()
+        self._ensure_state_cache()
+
+        offset_lab = np.asarray(offset_vector, dtype=float)
 
         # Check if the new values are the same as the old ones
-        if np.isclose(offset_vector, self.offset).all():
+        if np.isclose(offset_lab, self._offset_lab).all():
             return  # No change, so do nothing
-        
-        # Convert the offset vector from the mirror's local frame to the lab frame
-        offset_local = self.frame.vector_from_lab(offset_vector)
-        
-        self.shadow_oe.OFFX = offset_local[0]
-        self.shadow_oe.OFFY = offset_local[1]
-        self.shadow_oe.OFFZ = offset_local[2]
 
-        self.reset()  # Update the element after changing the offset
-        self.up_to_date = False
-        self.beamline.up_to_date = False
+        self._offset_lab = offset_lab
+        self._mark_modified()
 
     @property
     def tilt(self):
         """
-        Get the current tilt angles of the mirror's orientation in the global frame.
-        
+        Get the current tilt angles of the element's orientation in the global frame.
+
         Returns:
-            np.ndarray: A 3D vector representing the tilt angles (in mrad) around the lab frame axes.
+            np.ndarray: A 3D vector representing the tilt angles (in mrad)
+            around the lab frame axes.
+
+        Notes:
+            Reading shadow_oe.X_ROT/Y_ROT/Z_ROT here used to be ambiguous:
+            Shadow stores them in DEGREES until traceOE() runs and in RADIANS
+            afterwards. The cached lab-frame state is always in mrad and is
+            therefore valid before and after any number of traces.
         """
-        if self.frame is None:
-            raise ValueError(f"{self.name} frame is not defined. Please add the element to a beamline first.")
-        
-        # Shadow stores X_ROT/Y_ROT/Z_ROT in radians after tracing
-        tilt_local_rad = np.array([
-            -self.shadow_oe.X_ROT,
-            -self.shadow_oe.Y_ROT,
-            -self.shadow_oe.Z_ROT
-        ])
-        
-        tilt_lab_rad = self.frame.vector_to_lab(tilt_local_rad)
-        return 1000 * tilt_lab_rad  # rad → mrad
+        self._require_frame()
+        self._ensure_state_cache()
+        return self._tilt_mrad.copy()
 
     @tilt.setter
     def tilt(self, tilt_mrad: np.ndarray):
         """
-        Apply tilts to the mirror's orientation.
-        
-        Parameters:
-            tilt_mrad (np.ndarray): A 3D vector representing the tilt angles 
-            (in mrad) around the lab frame axes.
-        """
-        if self.frame is None:
-            raise ValueError(f"{self.name} frame is not defined. Please add the element to a beamline first.")
-        
-        # mrad → rad → rotate to local frame → deg (Shadow expects degrees as input)
-        tilt_lab_rad = np.asarray(tilt_mrad) / 1000
-        tilt_local_rad = self.frame.vector_from_lab(tilt_lab_rad)
-        tilt_local_deg = np.rad2deg(tilt_local_rad)
-        
-        self.shadow_oe.X_ROT = -tilt_local_deg[0]
-        self.shadow_oe.Y_ROT = -tilt_local_deg[1]
-        self.shadow_oe.Z_ROT = -tilt_local_deg[2]
+        Apply tilts to the element's orientation.
 
-        self.reset()
-        self.up_to_date = False
-        self.beamline.up_to_date = False
+        Parameters:
+            tilt_mrad (np.ndarray): A 3D vector representing the tilt angles
+            (in mrad) around the lab frame axes.
+
+        Notes:
+            Only the cached lab-frame value is authoritative here. Conversion
+            to Shadow's local-frame degrees happens in apply_state(), which is
+            invoked by reset() right before each trace.
+        """
+        self._require_frame()
+        self._ensure_state_cache()
+        self._tilt_mrad = np.asarray(tilt_mrad, dtype=float)
+        self._mark_modified()
 
     @property
     def tx(self):
@@ -303,11 +383,20 @@ class OpticalElement:
 
     def reset(self):
         """
-        Reset the optical element to its original specification.
+        Restore the specification, then re-apply the cached user state.
+
+        Shadow's traceOE() overwrites X/Y/Z_ROT with radians. Without
+        re-applying the cached tilts in DEGREES here, the next trace would feed
+        those radians back to Shadow as degrees, shrinking every tilt by a
+        factor of pi/180 per trace. BeamLine.trace() calls reset() immediately
+        before traceOE(), so Shadow always receives the intended angles.
         """
         for key, value in self.specification.items():
             if key not in self.persistent_attributes:
                 setattr(self.shadow_oe, key, value)
+
+        # Re-apply LAST so the specification restore cannot overwrite it.
+        self.apply_state()
 
 # ========================================================================
 #                        OPTICAL ELEMENTS

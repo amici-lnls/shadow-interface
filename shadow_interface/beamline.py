@@ -120,6 +120,10 @@ class BeamLine:
 
             # Add the optical elements to the beamline.
             element.beamline = self
+            # Snapshot the spec offset/tilt now that the frame exists and before
+            # any trace mutates Shadow's rotation fields (deg -> rad in place).
+            # From here on the cached lab-frame state is the source of truth.
+            element.cache_state_from_spec()
 
 
     def full_trace(self):
@@ -128,6 +132,9 @@ class BeamLine:
         """
         
         for i, element in enumerate(self.elements):
+            # Same as trace(): reset() re-applies the user state in the units
+            # Shadow expects (degrees for rotations) before every traceOE().
+            element.reset()
             self.beam.traceOE(element.shadow_oe, i+1)
             
             # Store the beam after each element
